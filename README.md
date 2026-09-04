@@ -102,9 +102,9 @@ N      = 该芯片的配置字数量（参与校验和的槽数）
 
 | 工程 | 芯片 | 配置字 | N | CfgSum | CfgCRC |
 |---|---|---|---|---|---|
-| Demo - 3.5Khz（报警器） | SC8F052 | 3FFB,3FEF | 2 | A5AE | 20CD | ✓ 与烧录器一致（2 槽） |
-| test | SC8F052 | 7FFF,FFEF | 2 | AA75 | 9665 | 旧算法样本（同为 2 槽，规则一致） |
-| OSND-TC011-A-V10 | SC8F072 | FFFF,FAEF,FFFF,FFFF | 4 | 4619 | EC0D | ✓ 与烧录器一致（4 槽） |
+| test1 | SC8F052 | 3FFB,3FEF | 2 | A5AE | 20CD | ✓ 与烧录器一致（2 槽） |
+| test2 | SC8F052 | 7FFF,FFEF | 2 | AA75 | 9665 | 旧算法样本（同为 2 槽，规则一致） |
+| test3 | SC8F072 | FFFF,FAEF,FFFF,FFFF | 4 | 4619 | EC0D | ✓ 与烧录器一致（4 槽） |
 
 > 新芯片接入：若某芯片烧录器显示的 CfgSum/CfgCRC 与插件不符，先确认该芯片的配置字数量与是否 CMSCore
 > （非 CMS 内核只加配置字低字节），把芯片名补进 `src/scx.ts` 的 `CFG_WORD_COUNT` / `NON_CMS_CORE` 即可。
