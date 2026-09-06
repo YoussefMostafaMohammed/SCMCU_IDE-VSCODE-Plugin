@@ -10,6 +10,52 @@ import { showSourceManager } from './webview/sourceManager';
 import { findScxFiles, patchScxConfigWords } from './scx';
 import { detectProgrammers } from './programmer';
 import { flashScx } from './flash';
+import { spawn } from 'child_process';
+
+// ---- 安装即用：激活时自愈烧录助手（exe 缺失自动构建、.config 缺失自动生成）----
+const HELPER_CONFIG_XML = '<?xml version="1.0" encoding="utf-8"?>\n'
+    + '<configuration>\n'
+    + '  <runtime>\n'
+    + '    <!-- Writer.Core.dll 等带 Zone.Identifier(来自网络标记)，Assembly.LoadFrom 会视为远程源并抛\n'
+    + '         NotSupportedException(0x80131515)；启用该开关以允许从受信本地目录加载。 -->\n'
+    + '    <loadFromRemoteSources enabled="true"/>\n'
+    + '  </runtime>\n'
+    + '</configuration>\n';
+
+// 激活时确保 flash 助手就绪：ScmcuFlashHelper.exe 存在、旁边 .config 存在。
+// 缺失时自动生成/自动构建（构建需 Python，失败只提示，不阻塞插件）。
+async function ensureFlashHelper(context: vscode.ExtensionContext): Promise<void> {
+    const flashDir = path.join(context.extensionPath, 'flash');
+    const exe = path.join(flashDir, 'ScmcuFlashHelper.exe');
+    const cfg = exe + '.config';
+    try { fs.mkdirSync(flashDir, { recursive: true }); } catch { /* 忽略 */ }
+    // 1) .config 缺失 → 生成（根治 loadFromRemoteSources 报错）
+    if (!fs.existsSync(cfg)) {
+        try {
+            fs.writeFileSync(cfg, HELPER_CONFIG_XML, 'utf8');
+            if (channel) channel.appendLine('[SCMCU] 已生成烧录助手配置: ' + cfg);
+        } catch (e) {
+            if (channel) channel.appendLine('[SCMCU] 生成烧录助手配置失败: ' + e);
+        }
+    }
+    // 2) exe 缺失 → 尝试自动构建（python flash/build_helper.py，需 Python + 网络下载 Roslyn）
+    if (!fs.existsSync(exe)) {
+        const py = process.env.SCMCU_BUILD_PY || 'python';
+        const script = path.join(flashDir, 'build_helper.py');
+        if (channel) channel.appendLine('[SCMCU] 未找到烧录助手，正在自动构建（首次需联网下载 Roslyn 编译器）…');
+        const child = spawn(py, [script], { cwd: flashDir });
+        child.stdout.on('data', (c: Buffer) => { if (channel) channel.append(c.toString('utf8')); });
+        child.stderr.on('data', (c: Buffer) => { if (channel) channel.append(c.toString('utf8')); });
+        child.on('error', (e) => {
+            if (channel) channel.appendLine('[SCMCU] 自动构建失败（无法启动 python）: ' + e.message + '。可手动运行: ' + py + ' ' + script);
+        });
+        child.on('close', (code) => {
+            if (channel) channel.appendLine(code === 0
+                ? '[SCMCU] 烧录助手构建完成'
+                : '[SCMCU] 自动构建失败（退出码 ' + code + '）。可手动运行: ' + py + ' ' + script);
+        });
+    }
+}
 
 // 插件是否已加载（保证「SCMCU: 启动」命令幂等，不重复注册）
 let scmcuLoaded = false;
@@ -40,6 +86,9 @@ function startScmcu(context: vscode.ExtensionContext): void {
     scmcuLoaded = true;
     channel = vscode.window.createOutputChannel('SCMCU');
     context.subscriptions.push(channel);
+
+    // 安装即用：后台自愈烧录助手（不阻塞激活）
+    void ensureFlashHelper(context);
 
     // ---- 编译 ----
     context.subscriptions.push(vscode.commands.registerCommand('scmcu.build', async () => {

@@ -19,7 +19,29 @@ import subprocess, os, sys, json, urllib.request, zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 插件根
 SRC = os.path.join(ROOT, 'flash', 'ScmcuFlashHelper.cs')
 OUT = os.path.join(ROOT, 'flash', 'ScmcuFlashHelper.exe')
-CACHE = r'C:/Users/Administrator/.workbuddy/binaries/roslyn'
+
+def _pick_first(*paths):
+    """按顺序取第一个已存在的路径；全都不存在时返回第一个（供下载/报错用）。"""
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    return paths[0]
+
+def _writable_dir(p):
+    """路径存在则看是否可写；不存在则回溯最近存在的上级目录判断可写性。"""
+    while not os.path.exists(p):
+        nxt = os.path.dirname(p)
+        if nxt == p:
+            return False
+        p = nxt
+    return os.access(p, os.W_OK)
+
+# Roslyn 编译器缓存：优先当前用户可写目录，旧的 Administrator 路径仅当可写才用
+_CACHE_CANDIDATES = [
+    os.path.join(os.path.expanduser('~'), '.workbuddy', 'binaries', 'roslyn'),
+    r'C:/Users/Administrator/.workbuddy/binaries/roslyn',
+]
+CACHE = next((p for p in _CACHE_CANDIDATES if _writable_dir(p)), _CACHE_CANDIDATES[0])
 
 def dec(b):
     if not b:
@@ -67,7 +89,11 @@ def main():
         raise SystemExit('FAIL: Roslyn 缓存缺失，先不带 --skip-download 运行')
 
     fw = r'C:/Windows/Microsoft.NET/Framework/v4.0.30319'  # x86
-    writer_lib = r'F:/Work/SCMCU_Writer_V9.01.16/library'
+    # Writer 库目录自动探测：--writer-lib 覆盖 > 环境变量 SCMCU_WRITER_LIB > 常见安装位置
+    writer_lib = (os.environ.get('SCMCU_WRITER_LIB') or
+                  _pick_first(r'F:/Work/SCMCU_Writer_V9.01.16/library',
+                              r'C:/Program Files (x86)/SCMCU_Writer_V9.01.16/library',
+                              r'C:/Program Files/SCMCU_Writer_V9.01.16/library'))
     for i, a in enumerate(sys.argv):
         if a == '--writer-lib' and i + 1 < len(sys.argv):
             writer_lib = sys.argv[i + 1]
