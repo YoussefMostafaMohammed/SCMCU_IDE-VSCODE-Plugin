@@ -5,12 +5,12 @@ import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { detectProgrammers } from './programmer';
 
-// 烧录助手(ScmcuFlashHelper.exe)在中文 Windows 下以 GBK 输出中文状态；
-// 默认 UTF-8 解码会乱码，故用 GBK 流式解码，失败回退 utf-8。
-function makeGbkDecoder(): any {
+// 烧录助手(ScmcuFlashHelper.exe)是 .NET 程序，以 UTF-8 输出中文状态；
+// 故用 UTF-8 流式解码，失败回退 GBK。
+function makeFlashDecoder(): any {
+    try { return new TextDecoder('utf-8'); } catch (e) {}
     try { return new TextDecoder('gbk'); } catch (e) {}
-    try { return new TextDecoder('gb2312'); } catch (e) {}
-    return new TextDecoder('utf-8');
+    return new TextDecoder('gb2312');
 }
 
 
@@ -96,7 +96,7 @@ export async function flashScx(
     return new Promise<FlashResult>((resolve) => {
         let errText = '';
         const child = spawn(helperExe, args, { cwd: path.dirname(helperExe) });
-        const outDec = makeGbkDecoder();
+        const outDec = makeFlashDecoder();
         child.stdout.on('data', (c: Buffer) => { channel.append(outDec.decode(c, { stream: true })); });
         child.stderr.on('data', (c: Buffer) => {
             const s = outDec.decode(c, { stream: true });

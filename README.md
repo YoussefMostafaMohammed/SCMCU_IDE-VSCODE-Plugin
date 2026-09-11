@@ -1,7 +1,7 @@
 ﻿# SCMCU IDE for VS Code（SC8 系列单片机）
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.3-orange.svg)](https://github.com/2blaowang/SCMCU_IDE-VSCODE-Plugin/releases)
+[![Version](https://img.shields.io/badge/version-0.9.4-orange.svg)](https://github.com/2blaowang/SCMCU_IDE-VSCODE-Plugin/releases)
 
 **仓库地址（国内建议走 Gitee）：**
 
@@ -252,6 +252,7 @@ python flash/build_helper.py   # 产物 flash/ScmcuFlashHelper.exe（x86 / .NET 
 > 来源与更新方式见 `test/fixtures/README.md`。
 
 ## 版本历史
+- **v0.9.4** — **烧录助手下载信息乱码修复**：`ScmcuFlashHelper.exe`（.NET 程序）实际输出 UTF-8，v0.9.3 误将其按 GBK 解码，导致一键下载的 `[STEP]`/`[INFO]` 中文状态乱码（如「配置模板 / 机型 / 固件 / 烧写次数上限 / 已连接编程器」）；本次将烧录助手输出解码改为 **UTF-8 优先、GBK 兜底**（编译器警告仍走 GBK，保持正常可点击）。
 - **v0.9.3** — ① **编译/烧录输出中文乱码修复**：build.ts 编译输出与 flash.ts 烧录助手输出统一按 GBK 解码（失败回退 utf-8），中文路径与中文状态不再乱码；② **编译器警告可点击跳转**：picc 对 Warning 缺列号的 `路径:行::` 已归一化为 `路径:行:列:`，输出面板支持 Ctrl+点击跳转，并正常进入「问题」面板；③ programmer.ts 设备枚举输出同样改 GBK 解码。
 
 
