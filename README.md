@@ -1,7 +1,7 @@
 ﻿# SCMCU IDE for VS Code（SC8 系列单片机）
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.2-orange.svg)](https://github.com/2blaowang/SCMCU_IDE-VSCODE-Plugin/releases)
+[![Version](https://img.shields.io/badge/version-0.9.3-orange.svg)](https://github.com/2blaowang/SCMCU_IDE-VSCODE-Plugin/releases)
 
 **仓库地址（国内建议走 Gitee）：**
 
@@ -252,6 +252,8 @@ python flash/build_helper.py   # 产物 flash/ScmcuFlashHelper.exe（x86 / .NET 
 > 来源与更新方式见 `test/fixtures/README.md`。
 
 ## 版本历史
+- **v0.9.3** — ① **编译/烧录输出中文乱码修复**：build.ts 编译输出与 flash.ts 烧录助手输出统一按 GBK 解码（失败回退 utf-8），中文路径与中文状态不再乱码；② **编译器警告可点击跳转**：picc 对 Warning 缺列号的 `路径:行::` 已归一化为 `路径:行:列:`，输出面板支持 Ctrl+点击跳转，并正常进入「问题」面板；③ programmer.ts 设备枚举输出同样改 GBK 解码。
+
 
 - **v0.9.2** — ① **底栏按钮精简**：芯片设置/源文件/构建/编译下载四个操作按钮改为纯图标，悬停提示精简为短文案（编译并下载到编程器 / 芯片设置 / 管理源文件 / 编译）；② **烧录助手补 wafer 修调数据下发**：按官方 `Run.StartDownload` 时序，在 0x60 校验前下发 `writer.fdat` 的 wafer 修调数据（Series 无数据自动跳过），为 FLASH 系列芯片脱机烧录兜底（SC8F072 全流程下载已验证）
 - **v0.9.1** — ① **脱机烧录「找不到芯片」修复**：一键下载时写入正确的脱机选项 OfflineOption0/1（POWER=0，即官方默认 0xE8/0xE0），不再误用全局默认 0xFF（POWER=7），修掉「插件下载后按编程器烧录键找不到芯片」；② **脱机烧录「烧写次数不足」修复**：烧写次数上限默认改为无限（0=无限），`scmcu.flashCount` 设正整数可作量产限次；③ **源文件管理器死循环修复**：面板增删/排序改为整体覆写 `.scw` 的 SourceFile 段，在目录里删除源文件后也能正常从面板移除失效条目，不再报「源文件集合与 .scw 不一致」卡死

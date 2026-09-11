@@ -5,6 +5,15 @@ import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { detectProgrammers } from './programmer';
 
+// 烧录助手(ScmcuFlashHelper.exe)在中文 Windows 下以 GBK 输出中文状态；
+// 默认 UTF-8 解码会乱码，故用 GBK 流式解码，失败回退 utf-8。
+function makeGbkDecoder(): any {
+    try { return new TextDecoder('gbk'); } catch (e) {}
+    try { return new TextDecoder('gb2312'); } catch (e) {}
+    return new TextDecoder('utf-8');
+}
+
+
 export interface FlashResult { ok: boolean; message: string; }
 
 // 判定目录是否为 SCMCU Writer 安装目录（library/Writer.Core.dll + data/system.info + data/database.db）
@@ -87,14 +96,16 @@ export async function flashScx(
     return new Promise<FlashResult>((resolve) => {
         let errText = '';
         const child = spawn(helperExe, args, { cwd: path.dirname(helperExe) });
-        child.stdout.on('data', (c: Buffer) => { channel.append(c.toString('utf8')); });
+        const outDec = makeGbkDecoder();
+        child.stdout.on('data', (c: Buffer) => { channel.append(outDec.decode(c, { stream: true })); });
         child.stderr.on('data', (c: Buffer) => {
-            const s = c.toString('utf8');
+            const s = outDec.decode(c, { stream: true });
             errText += s;
             channel.append(s);
         });
         child.on('error', (e) => resolve({ ok: false, message: '无法启动烧录助手: ' + e.message }));
         child.on('close', (code) => {
+            try { channel.append(outDec.decode()); } catch (e) { /* 忽略末尾解码异常 */ }
             channel.appendLine('');
             if (code === 0) {
                 resolve({ ok: true, message: probe ? '链路探测通过（未烧录）' : '下载完成' });

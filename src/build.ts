@@ -173,13 +173,13 @@ function applyDiagnostics(lines: string[], workspaceRoot: string): void {
     const byFile = new Map<string, vscode.Diagnostic[]>();
     // 新格式: 路径:行:列: Error[编号] 消息 (路径打头, VS Code 输出面板自动出 Ctrl+点击链接)
     // Windows 盘符含冒号(C:\)，文件名段必须用非贪婪 .+? 匹配到 ":数字:数字:" 为止
-    const DIAG_RE = /^(.+?):(\d+):(\d+):\s*(Error|Warning|Info)\[(\d+)\]\s*(.*)$/;
+    const DIAG_RE = /^(.+?):(\d+)(?::(\d+))?:\s*(Error|Warning|Info)\[(\d+)\]\s*(.*)$/;
     for (const raw of lines) {
         const m = raw.trim().match(DIAG_RE);
         if (!m) continue;
         const sev = m[4];
         const ln = Math.max(0, parseInt(m[2], 10) - 1);
-        const col = Math.max(0, parseInt(m[3], 10) - 1);
+        const col = m[3] ? Math.max(0, parseInt(m[3], 10) - 1) : 0;
         const msg = `${m[5]} - ${m[6]}`;
         const severity = sev === 'Error'
             ? vscode.DiagnosticSeverity.Error
@@ -203,6 +203,25 @@ function applyDiagnostics(lines: string[], workspaceRoot: string): void {
     }
 }
 
+// 解码 picc 控制台输出。在中文 Windows 上 picc 以 GBK(代码页 936) 输出，
+// 若按默认 UTF-8 解码，中文路径会变成乱码（如 f:/gat/????/...），
+// 既无法在输出面板正确显示，诊断也无法定位到真实文件。这里优先按 GBK 解码。
+function makeGbkDecoder(): any {
+    const TD: any = (globalThis as any).TextDecoder || require('util').TextDecoder;
+    try {
+        return new TD('gbk');
+    } catch {
+        return new TD('utf-8');
+    }
+}
+
+// picc 在缺少列号时会输出 "路径:行:: 级别[编号] 信息"（双冒号、列号缺失），
+// 该格式既无法被 VS Code 输出面板的 Ctrl+点击 链接识别，也不匹配诊断正则。
+// 补一个列号(1)统一成 "路径:行:列:" 形式，Warning 也能点击跳转。
+function normalizeDiagLine(l: string): string {
+    return l.replace(/^(.+?:\d+)::(\s*(?:Error|Warning|Info)\[)/, '$1:1:$2');
+}
+
 function runPicc(
     exe: string,
     args: string[],
@@ -221,14 +240,16 @@ function runPicc(
         }
         let buf = '';
         const collected: string[] = [];
+        const decoder = makeGbkDecoder();
         const onData = (d: Buffer) => {
-            buf += d.toString();
+            buf += decoder.decode(d, { stream: true });
             const lines = buf.split(/\r?\n/);
             buf = lines.pop() || '';
             for (const l of lines) {
-                if (l.trim()) {
-                    channel.appendLine(l);
-                    collected.push(l);
+                const norm = normalizeDiagLine(l);
+                if (norm.trim()) {
+                    channel.appendLine(norm);
+                    collected.push(norm);
                 }
             }
         };
@@ -236,9 +257,11 @@ function runPicc(
         child.stderr?.on('data', onData);
         child.on('error', (e) => { channel.appendLine('[SCMCU] 启动失败: ' + e.message); });
         child.on('close', (code) => {
+            buf += decoder.decode(); // 冲刷末尾可能跨块的多字节字符
             if (buf.trim()) {
-                channel.appendLine(buf.trim());
-                collected.push(buf.trim());
+                const norm = normalizeDiagLine(buf.trim());
+                channel.appendLine(norm);
+                collected.push(norm);
             }
             channel.appendLine('');
             channel.appendLine(`[SCMCU] picc 退出码: ${code}`);

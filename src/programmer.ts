@@ -72,16 +72,26 @@ export async function detectProgrammers(timeoutMs = 4000): Promise<ProgrammerDev
     return parseDeviceIds(raw).map(classifyPid);
 }
 
+// 中文 Windows 下 pnputil / PowerShell 以 GBK 输出设备名，按 GBK 解码避免乱码。
+function makeGbkDecoder(): any {
+    try { return new TextDecoder('gbk'); } catch (e) {}
+    try { return new TextDecoder('gb2312'); } catch (e) {}
+    return new TextDecoder('utf-8');
+}
+
 function execText(cmd: string, args: string[], timeoutMs: number): Promise<string> {
     return new Promise<string>((resolve, reject) => {
         cp.execFile(cmd, args, {
             windowsHide: true,
             timeout: timeoutMs,
             maxBuffer: 4 * 1024 * 1024,
-            encoding: 'utf8',
+            encoding: 'buffer',
         }, (err, stdout) => {
-            if (err) reject(err);
-            else resolve(stdout || '');
+            if (err) { reject(err); return; }
+            const buf = (stdout as unknown) as Buffer;
+            let s = '';
+            try { s = makeGbkDecoder().decode(buf); } catch (e) { s = buf.toString('utf8'); }
+            resolve(s || '');
         });
     });
 }
