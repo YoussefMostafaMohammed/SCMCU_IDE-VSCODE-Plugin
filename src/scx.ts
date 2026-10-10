@@ -131,8 +131,9 @@ function readScxChipName(scx: Buffer): string {
 }
 
 // 计算 .scx 的 CfgSum 和 CfgCRC（算法与 Writer.Core.dll 反编译的 GetCheckSum / GetDataCRC16 一致）
-//   .scx 配置字区固定为 [0xA0,0xA8) 共 4 个槽（8 字节），但参与校验和的槽数 = 该芯片的配置字数量 N：
-//     SC8F052 = 2 槽（[0xA0,0xA4)）；SC8F072 = 4 槽（[0xA0,0xA8)）
+//   .scx 配置字区为 [0xA0,0xC0)（预留 16 个槽 = 32 字节），参与校验和的槽数 = 该芯片的配置字数量 N
+//   （N 来自 mcu/ini/<chip>.ini 的 CONFIGLENTH+1，见 chip.ts:resolveConfigWordCount）：
+//     SC8F052 = 2 槽；SC8P052B = 3 槽；SC8F072 = 4 槽；SC8F27xx = 16 槽
 //   CfgCRC = 对 [程序区字节 + 前 N 个配置字槽字节（低+高）] 做 CRC-16/CCITT-FALSE (poly=0x1021, init=0xFFFF, xorout=0)
 //            （对应 GetDataCRC16: GetCRC16L_1021_FFFF_0000(0xFFFF, romDatas+bootRom+GetConfigByteDatas)）
 //   CfgSum = (Σ程序区字节 + Σ前 N 个配置字 [低字节 + (CMSCore ? 高字节 : 0)]) & 0xFFFF
@@ -144,11 +145,13 @@ export function calcCfgChecks(scx: Buffer, romWords?: number, cfgWordCount?: num
     const prog = scx.subarray(0x100, progEnd);
     const chip = readScxChipName(scx);
 
-    // 槽数优先级：实测芯片表 → build.ts 传入的推导值 → 默认 4
-    let n = CFG_WORD_COUNT[chip] !== undefined ? CFG_WORD_COUNT[chip] : (cfgWordCount !== undefined && cfgWordCount > 0 ? cfgWordCount : 4);
+    // 槽数优先级：build.ts 传入的权威值（.ini CONFIGLENTH+1）→ 实测芯片表 → 默认 4
+    let n = (cfgWordCount !== undefined && cfgWordCount > 0)
+        ? cfgWordCount
+        : (CFG_WORD_COUNT[chip] !== undefined ? CFG_WORD_COUNT[chip] : 4);
     if (n < 0) n = 0;
-    if (n > 4) n = 4;
-    const cfg = scx.subarray(0xa0, 0xa0 + n * 2); // 前 n 个槽
+    if (n > 16) n = 16;                                    // .scx 头部 0xA0~0xC0 预留 16 个配置字
+    const cfg = scx.subarray(0xa0, Math.min(0xa0 + n * 2, scx.length)); // 前 n 个槽
 
     // CfgCRC：程序区 → 配置字区（低+高字节，原值）
     let crc = 0xffff;

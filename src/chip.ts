@@ -86,7 +86,7 @@ function resolveHexmcu(device: string): number {
 }
 
 // ---- 芯片参数：从 mcu/ini/<chip>.ini 读 ROMSIZE / HEXMCU ----
-export interface ChipParams { romWords: number; hexmcu: number; }
+export interface ChipParams { romWords: number; hexmcu: number; configWordCount: number; }
 
 export function loadChipParams(idePath: string, device: string): ChipParams {
     const iniPath = path.join(idePath, 'mcu', 'ini', device + '.ini');
@@ -101,9 +101,9 @@ export function loadChipParams(idePath: string, device: string): ChipParams {
         const romsize = parseInt(d['ROMSIZE'] || '3FF', 16);
         const iniHex = (d['HEXMCU'] || '').trim();
         const hexmcu = iniHex ? parseInt(iniHex, 16) : resolveHexmcu(device);
-        return { romWords: romsize + 1, hexmcu };
+        return { romWords: romsize + 1, hexmcu, configWordCount: resolveConfigWordCount(idePath, device, d['CONFIGLENTH']) };
     }
-    return { romWords: 1024, hexmcu: resolveHexmcu(device) };
+    return { romWords: 1024, hexmcu: resolveHexmcu(device), configWordCount: getChipConfigWordCount(idePath, device) };
 }
 
 // ---- cfg 选项模板：mcu/config/<chip>.cfg ----
@@ -150,9 +150,21 @@ export function computeConfigWords(tpl: CfgTemplate, selections: Record<string, 
     return words;
 }
 
-// 从芯片配置模板推导该芯片的配置字数量（最大 word 索引 + 1）。
-// 仅作未知芯片的兜底估算；已知芯片以 scx.ts 的 CFG_WORD_COUNT 实测表为准
-// （SC8F072 模板只用到 word1，但烧录器实测按 4 槽，故该芯片以实测表 4 为准）。
+// 配置字槽数权威来源：mcu/ini/<chip>.ini 的 CONFIGLENTH（十六进制），槽数 = CONFIGLENTH + 1。
+// 实测（与 SCWriter 显示值核对）：SC8F052 CONFIGLENTH=1 → 2 槽、SC8P052B=2 → 3 槽、SC8F072=3 → 4 槽；
+// SC8F27xx 等系列 CONFIGLENTH=F → 16 槽（.scx 头部 0xA0~0xC0 恰好预留 32 字节 = 16 个字）。
+// ini 缺失 / 无 CONFIGLENTH 时回退 .cfg 模板推导（getChipConfigWordCount）。
+export function resolveConfigWordCount(idePath: string, device: string, configLenthRaw?: string): number {
+    const raw = (configLenthRaw || '').trim();
+    if (raw) {
+        const v = parseInt(raw, 16);
+        if (!Number.isNaN(v) && v >= 0 && v <= 15) return v + 1;
+    }
+    return getChipConfigWordCount(idePath, device);
+}
+
+// 兜底：从芯片配置模板 .cfg 推导配置字数量（最大 word 索引 + 1）。
+// 权威来源是 mcu/ini/<chip>.ini 的 CONFIGLENTH（见 resolveConfigWordCount），本函数仅在其缺失时使用。
 export function getChipConfigWordCount(idePath: string, device: string): number {
     try {
         const cfgPath = path.join(idePath, 'mcu', 'config', device + '.cfg');

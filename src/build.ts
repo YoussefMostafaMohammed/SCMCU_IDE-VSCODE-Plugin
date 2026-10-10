@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
-import { findScwFile, parseScw, loadChipParams, listCandidateSources, getChipConfigWordCount, ScwInfo } from './chip';
+import { findScwFile, parseScw, loadChipParams, listCandidateSources, ScwInfo } from './chip';
 import { findCompilerDir } from './compiler';
 import { hexToScx, calcCfgChecks } from './scx';
 
@@ -133,10 +133,9 @@ export async function buildProject(workspaceRoot: string, channel: vscode.Output
         channel.appendLine('');
         channel.appendLine(`[SCMCU] 配置字: ${words.map(w => w.toString(16).toUpperCase().padStart(4, '0')).join(',')}`);
         channel.appendLine(`[SCMCU] 烧录文件: ${scxPath} (${scx.length} 字节)`);
-        // 配置槽数 = 该芯片的配置字数：calcCfgChecks 内部优先查 CFG_WORD_COUNT 实测表
-        // （.scw 的 config 会用 FFFF 补齐到 4 个，不能作为槽数依据，如 SC8F052=2 槽），
-        // 未收录芯片再用模板推导值兜底
-        const { sum, crc } = calcCfgChecks(scx, params.romWords, getChipConfigWordCount(comp.idePath, info.device) || undefined);
+        // 配置槽数 = 该芯片的配置字数：权威来源 mcu/ini/<chip>.ini 的 CONFIGLENTH+1
+        // （.scw 的 config 会用 FFFF 补齐到 4 个，不能作为槽数依据，如 SC8F052=2 槽、SC8P052B=3 槽）
+        const { sum, crc } = calcCfgChecks(scx, params.romWords, params.configWordCount || undefined);
         channel.appendLine(`[SCMCU] CfgCRC(Hex) -- 0x${crc.toString(16).toUpperCase().padStart(4, '0')}  CfgSum(Hex) -- 0x${sum.toString(16).toUpperCase().padStart(4, '0')}`);
         channel.appendLine('[SCMCU] ✅ 构建成功');
         vscode.window.showInformationMessage(`SCMCU 构建成功: ${path.basename(scxPath)}`);

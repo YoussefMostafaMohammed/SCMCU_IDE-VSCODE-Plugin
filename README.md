@@ -1,7 +1,7 @@
 ﻿# SCMCU IDE for VS Code（SC8 系列单片机）
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.4-orange.svg)](https://github.com/2blaowang/SCMCU_IDE-VSCODE-Plugin/releases)
+[![Version](https://img.shields.io/badge/version-0.9.5-orange.svg)](https://github.com/2blaowang/SCMCU_IDE-VSCODE-Plugin/releases)
 
 **仓库地址（国内建议走 Gitee）：**
 
@@ -252,6 +252,7 @@ python flash/build_helper.py   # 产物 flash/ScmcuFlashHelper.exe（x86 / .NET 
 > 来源与更新方式见 `test/fixtures/README.md`。
 
 ## 版本历史
+- **v0.9.5** — **配置字校验和与官方 SCWriter 对齐**：修复「配置字槽数」推导错误——旧逻辑从芯片选项模板 `mcu/config/<芯片>.cfg` 取「最大 word 索引 + 1」，对 SC8P052B 这类模板只覆盖 word0 的器件会误判为 1 槽，导致 `CfgCRC`/`CfgSum` 与 SCWriter 不一致（SC8P052B 实测：插件 0x6021/0x20DC vs Writer 0x319A/0x2304）。现改为优先读 IDE `mcu/ini/<型号>.ini` 的 `CONFIGLENTH`，槽数 = `CONFIGLENTH + 1`（十六进制），`.cfg` 模板仅作兜底；并把槽数上限由 4 放开到 **16**（`.scx` 头部 `[0xA0,0xC0)` 恰好预留 16 个字），修正 SC8F27xx 等 16 槽器件的校验和。
 - **v0.9.4** — **烧录助手下载信息乱码修复**：`ScmcuFlashHelper.exe`（.NET 程序）实际输出 UTF-8，v0.9.3 误将其按 GBK 解码，导致一键下载的 `[STEP]`/`[INFO]` 中文状态乱码（如「配置模板 / 机型 / 固件 / 烧写次数上限 / 已连接编程器」）；本次将烧录助手输出解码改为 **UTF-8 优先、GBK 兜底**（编译器警告仍走 GBK，保持正常可点击）。
 - **v0.9.3** — ① **编译/烧录输出中文乱码修复**：build.ts 编译输出与 flash.ts 烧录助手输出统一按 GBK 解码（失败回退 utf-8），中文路径与中文状态不再乱码；② **编译器警告可点击跳转**：picc 对 Warning 缺列号的 `路径:行::` 已归一化为 `路径:行:列:`，输出面板支持 Ctrl+点击跳转，并正常进入「问题」面板；③ programmer.ts 设备枚举输出同样改 GBK 解码。
 
