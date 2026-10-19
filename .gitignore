@@ -5,3 +5,62 @@ out/
 test-logic.js
 build/
 flash/*.exe
+
+# ============================================================
+# 构建产物 / IDE 状态（2026-10-19 统一整理）
+# 下列文件已用 git rm --cached 移出版本库跟踪，磁盘文件保留，
+# 重新编译即可再生成。固件成品 *.hex / *.bin 有意保留跟踪。
+# ============================================================
+
+# ---- 编译输出目录 ----
+Objects/
+Listings/
+DebugConfig/
+build/
+output/
+managed_components/
+node_modules/
+
+# ---- 目标文件与链接产物 ----
+*.o
+*.obj
+*.axf
+*.elf
+*.d
+*.dep
+*.crf
+*.lnp
+
+# ---- 列表 / 映射 / 符号 / 编译器中间文件 ----
+*.lst
+*.map
+*.sym
+*.sdb
+*.rlf
+*.cmf
+*.hxl
+*.p1
+*.pre
+*.as
+*.scx
+*.ram
+
+# ---- Keil / 烧写工具状态与日志 ----
+*.uvguix.*
+TXLinkLog.txt
+keil-assistant.log
+uv4.log
+uv4.log.lock
+JLinkLog.txt
+*.build_log.htm
+
+# ---- 其他 ----
+*.pyc
+__pycache__/
+Thumbs.db
+desktop.ini
+.DS_Store
+*~
+# ---- 补充：IDE 缓存与构建日志 ----
+.vscode/c_cpp_properties.json
+*.log
