@@ -1,13 +1,13 @@
 ﻿# SCMCU IDE for VS Code（SC8 系列单片机）
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.10-orange.svg)](https://github.com/2blaowang/SCMCU_IDE-VSCODE-Plugin/releases)
+[![Version](https://img.shields.io/badge/version-0.9.10-orange.svg)](https://github.com/wanguyouy/SCMCU_IDE-VSCODE-Plugin/releases)
 
 **仓库地址（国内建议走 Gitee）：**
 
 | 平台 | 地址 |
 |---|---|
-| GitHub | https://github.com/2blaowang/SCMCU_IDE-VSCODE-Plugin |
+| GitHub | https://github.com/wanguyouy/SCMCU_IDE-VSCODE-Plugin |
 | Gitee（国内镜像） | https://gitee.com/wangzhengyangsb/zhongweiscmcuidevscodecha |
 
 在 VS Code 中编译 SC8F/SC8P 系列单片机工程（基于 SCMCU_IDE 的 MPLAB XC8/PICC 工具链），
