@@ -164,9 +164,6 @@ The extension can auto-detect some installations, but explicit settings avoid am
 If compilation fails, verify that `scmcu.compilerPath` ends at the folder containing `picc.exe` and that `scmcu.idePath` is the IDE root. If programming reports a missing Writer database or DLL, verify `scmcu.writerPath` is the full Writer root and separately verify that the helper was built with the correct Writer `library` directory. After changing paths or installing the VSIX, reload the VS Code window.
 
 ## Build Without a `.scw` Project
-
-Standalone mode is for folders containing `.c`, `.asm`, or `.s` files but no SCMCU_IDE `.scw` project. Configure these settings in the SCMCU extension settings, `settings.json`, or with the commands below:
-
 - `scmcu.device` (**required**): chip model, for example `SC8F052A04`.
 - `scmcu.configWords` (**recommended**): four hexadecimal strings, for example `["0x1FFF","0x3FFF","0x3FFF","0x3FFF"]`. If empty, the extension uses the chip's default unprogrammed values and warns during the build. Verify hardware options before programming.
 - `scmcu.sourceFiles` (optional): ordered source-file list relative to the project root. An empty list (the default) scans for `.c`, `.asm`, and `.s` files; a non-empty list is compiled in the specified order.
