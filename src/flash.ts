@@ -1,9 +1,11 @@
-// flash.ts — 一键下载：编译后调用 SCMCU Writer 烧录助手（ScmcuFlashHelper.exe）烧录 .scx
+// flash.ts — 下载通道选择：Writer 烧录器走 ScmcuFlashHelper.exe 烧 .scx，CMS-ICE6 仿真器走 ice6_flash.py 烧 .hex
+// 由「一键编译下载」(scmcu.buildAndFlash) 与「只下载」(scmcu.flash) 共用。
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { detectProgrammers } from './programmer';
+import { findCompilerDir } from './compiler';
 
 // 烧录助手(ScmcuFlashHelper.exe)是 .NET 程序，以 UTF-8 输出中文状态；
 // 故用 UTF-8 流式解码，失败回退 GBK。
@@ -55,16 +57,133 @@ export function findWriterDir(): string | null {
     return null;
 }
 
+// 运行时解析：优先用插件自带的 embeddable Python（flash/py/python.exe），
+// 装完扩展即可下载，不需要用户另装 Python；SCMCU_BUILD_PY 可强制指定（改脚本调试时用），
+// 两者都没有才回落到 PATH 里的 python。
+function resolvePython(iceScript: string): { exe: string; bundled: boolean } {
+    const override = process.env.SCMCU_BUILD_PY;
+    if (override) {
+        return { exe: override, bundled: false };
+    }
+    const bundled = path.join(path.dirname(iceScript), 'py', 'python.exe');
+    if (fs.existsSync(bundled)) {
+        return { exe: bundled, bundled: true };
+    }
+    return { exe: 'python', bundled: false };
+}
+
+// 通过 CMS-ICE6（VID 0x0925）仿真器下载：调用纯 Python 脚本逐字节复刻 IDE 下载帧序列。
+// 该脚本内嵌 HID 通信(ctypes 标准库)与 IDE 抓包的控制帧(含 0x17 高压参数)，零 pip 依赖；
+// 配套的 embeddable Python 运行时随扩展一起分发（flash/py/），因此无需预装 Python。
+// hexPath: Intel HEX 固件; iceScript: flash/ice6_flash.py 绝对路径。
+export async function flashIce6(
+    hexPath: string,
+    iceScript: string,
+    channel: vscode.OutputChannel
+): Promise<FlashResult> {
+    if (!fs.existsSync(hexPath)) {
+        return { ok: false, message: 'HEX 固件文件不存在: ' + hexPath };
+    }
+    if (!fs.existsSync(iceScript)) {
+        return { ok: false, message: '缺少 ICE6 下载脚本: ' + iceScript + '（插件安装不完整）' };
+    }
+    const pyInfo = resolvePython(iceScript);
+    const py = pyInfo.exe;
+    // 脚本要按芯片名读 IDE 的硬件选项模板 <IDE>/mcu/config/<chip>.cfg，
+    // 把配置字翻成 WDT=DISABLE / LVR_SEL=1.8V 这类可读状态（找不到 IDE 时自动跳过）。
+    const comp = findCompilerDir();
+    const extraArgs = comp ? ['--ide=' + comp.idePath] : [];
+
+    // 进度只占一行：脚本不发逐档进度行，而是用 @@P 标记报「第几段/共多少」，
+    // 这里解析后写进底栏状态条（一行滚动），输出面板每个步骤只留一行结果。
+    const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    item.name = 'SCMCU 下载进度';
+    item.text = '$(sync~spin) SCMCU 下载…';
+    item.show();
+
+    return new Promise<FlashResult>((resolve) => {
+        let errText = '';
+        let pending = '';
+        let child;
+        const handleLine = (line: string) => {
+            if (line.startsWith('@@P\t')) {
+                const [, label, done, total] = line.split('\t');
+                if (label && done && total) item.text = `$(sync~spin) ${label} ${done}/${total}`;
+                return;
+            }
+            channel.appendLine(line);
+        };
+        try {
+            child = spawn(py, [iceScript, hexPath, ...extraArgs], {
+                cwd: path.dirname(iceScript),
+                env: { ...process.env, SCMCU_PROGRESS: '1' },
+            });
+        } catch (e: any) {
+            item.dispose();
+            resolve({ ok: false, message: '无法启动下载运行时（' + py + '）: ' + e.message });
+            return;
+        }
+        const outDec = makeFlashDecoder();
+        child.stdout?.on('data', (c: Buffer) => {
+            pending += outDec.decode(c, { stream: true });
+            const lines = pending.split('\n');
+            pending = lines.pop() || '';
+            for (const raw of lines) handleLine(raw.replace(/\r$/, ''));
+        });
+        child.stderr?.on('data', (c: Buffer) => {
+            const s = outDec.decode(c, { stream: true });
+            errText += s;
+            channel.append(s);
+        });
+        child.on('error', (e) => {
+            item.dispose();
+            const msg = pyInfo.bundled
+                ? '内置下载运行时启动失败（可能被杀毒软件拦截，或扩展目录不完整）: ' + e.message
+                : '无法启动 Python（请确认已安装并加入 PATH，或设置 SCMCU_BUILD_PY）: ' + e.message;
+            resolve({ ok: false, message: msg });
+        });
+        child.on('close', (code) => {
+            item.dispose();
+            try {
+                pending += outDec.decode();
+                if (pending.trim()) handleLine(pending.replace(/\r$/, ''));
+            } catch (e) { /* 忽略末尾解码异常 */ }
+            channel.appendLine('');
+            if (code === 0) {
+                resolve({ ok: true, message: 'CMS-ICE6 下载完成' });
+            } else {
+                const msg = errText.trim();
+                resolve({ ok: false, message: msg || `ICE6 下载脚本异常退出（代码 ${code}）` });
+            }
+        });
+    });
+}
+
 // 执行烧录。scxPath: 固件文件; helperExe: ScmcuFlashHelper.exe 绝对路径; probe: true=只做链路探测不烧录
 export async function flashScx(
     scxPath: string,
     helperExe: string,
     channel: vscode.OutputChannel,
     count: number,
-    probe: boolean
+    probe: boolean,
+    hexPath?: string,       // CMS-ICE6 下载用的 Intel HEX（buildAndFlash 传入）
+    iceScript?: string      // flash/ice6_flash.py 绝对路径
 ): Promise<FlashResult> {
-    if (!fs.existsSync(scxPath)) {
+    if (!fs.existsSync(scxPath) && !(hexPath && fs.existsSync(hexPath))) {
         return { ok: false, message: '固件文件不存在: ' + scxPath };
+    }
+    const devs = await detectProgrammers();
+    const normal = devs.find((d) => d.kind === 'writer' && d.mode !== 'bootloader');
+    // CMS-ICE6（VID 0x0925）是 ICE 仿真器：走逐字节复刻 IDE 的私有下载脚本，
+    // 不能套用 Writer.Core.dll 的 --pid 烧录流程，也**不依赖 SCMCU Writer 是否安装**。
+    // 因此这一段必须在 findWriterDir / ScmcuFlashHelper 检查之前判断。
+    const ice = devs.find((d) => d.kind === 'ice');
+    if (ice && !normal) {
+        if (!hexPath || !iceScript) {
+            return { ok: false, message: 'CMS-ICE6 下载需要 HEX 固件路径与下载脚本（插件内部错误）' };
+        }
+        channel.appendLine(`[SCMCU] 检测到 ${ice.name} (VID 0x${ice.vidHex}/PID 0x${ice.pidHex})`);
+        return flashIce6(hexPath, iceScript, channel);
     }
     const writer = findWriterDir();
     if (!writer) {
@@ -73,14 +192,12 @@ export async function flashScx(
     if (!fs.existsSync(helperExe)) {
         return { ok: false, message: '缺少烧录助手程序: ' + helperExe + '（插件安装不完整）' };
     }
-    const devs = await detectProgrammers();
-    const normal = devs.find((d) => d.mode !== 'bootloader');
     if (!normal) {
         return {
             ok: false,
             message: devs.length > 0
                 ? '检测到的编程器处于升级(bootloader)模式，请先用 SCMCU Writer 的升级功能恢复到正常模式'
-                : '未检测到 SCMCU 编程器（USB VID 0x1209）。请连接编程器并确认处于正常模式后重试',
+                : '未检测到 SCMCU 编程器或 ICE 仿真器（USB VID 0x1209 / 0x0925）。请连接设备后重试',
         };
     }
 

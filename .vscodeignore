@@ -8,3 +8,6 @@ test-logic.js
 **.md
 !README.md
 test/**
+# python 编译缓存（不打包）
+flash/__pycache__/**
+**/*.pyc

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
-import { findScwFile, parseScw, loadChipParams, listCandidateSources, ScwInfo } from './chip';
+import { findScwFile, parseScw, loadChipParams, listCandidateSources, describeConfig, ScwInfo } from './chip';
 import { findCompilerDir } from './compiler';
 import { hexToScx, calcCfgChecks } from './scx';
 
@@ -132,6 +132,9 @@ export async function buildProject(workspaceRoot: string, channel: vscode.Output
         fs.writeFileSync(scxPath, scx);
         channel.appendLine('');
         channel.appendLine(`[SCMCU] 配置字: ${words.map(w => w.toString(16).toUpperCase().padStart(4, '0')).join(',')}`);
+        // 配置字没人读得懂，紧跟一行 IDE 硬件选项面板的同款文案（WDT=DISABLE / LVR_SEL=1.8V …）
+        const optText = describeConfig(comp.idePath, info.device, words);
+        if (optText) channel.appendLine(`[SCMCU] 硬件选项: ${optText}`);
         channel.appendLine(`[SCMCU] 烧录文件: ${scxPath} (${scx.length} 字节)`);
         // 配置槽数 = 该芯片的配置字数：权威来源 mcu/ini/<chip>.ini 的 CONFIGLENTH+1
         // （.scw 的 config 会用 FFFF 补齐到 4 个，不能作为槽数依据，如 SC8F052=2 槽、SC8P052B=3 槽）

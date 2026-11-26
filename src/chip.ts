@@ -260,6 +260,22 @@ export function detectCurrentSelections(tpl: CfgTemplate, words: number[]): Reco
     return sel;
 }
 
+// 把配置字翻译成 IDE 硬件选项面板上的可读状态：
+// "WDT=DISABLE  PROTECT=ENABLE  LVR_SEL=1.8V  FCPU_DIV=4T  ICSPPORT_SEL=NORMAL  EXT_RESET=DISABLE"
+// 模板取自 <IDE>/mcu/config/<chip>.cfg，节顺序与文件一致；模板/芯片缺失时返回空串。
+export function describeConfig(idePath: string, device: string, words: number[]): string {
+    if (!idePath || !device) return '';
+    const cfgPath = path.join(idePath, 'mcu', 'config', device + '.cfg');
+    if (!fs.existsSync(cfgPath)) return '';
+    try {
+        const tpl = parseCfgTemplate(cfgPath);
+        const sel = detectCurrentSelections(tpl, words);
+        return Object.keys(tpl)
+            .map(sec => `${sec}=${sel[sec] || '?'}`)
+            .join('  ');
+    } catch { return ''; }
+}
+
 // ===== 源文件管理：按行就地改写 .scw 的 SourceFile= =====
 // 顺序即编译顺序（XC8 psect 依赖），增删/重排都必须保持现有行的其它内容不动。
 

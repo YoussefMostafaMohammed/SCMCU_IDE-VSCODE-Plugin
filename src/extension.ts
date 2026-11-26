@@ -39,6 +39,9 @@ async function ensureFlashHelper(context: vscode.ExtensionContext): Promise<void
         }
     }
     // 2) exe 缺失 → 尝试自动构建（python flash/build_helper.py，需 Python + 网络下载 Roslyn）
+    //    这里刻意用系统 python 而不是 flash/py 的内置运行时：内置运行时为省体积裁掉了
+    //    ssl/_hashlib，跑不了 build_helper.py 里的 HTTPS 下载。正常情况下 exe 随插件分发，
+    //    走不到这个分支。
     if (!fs.existsSync(exe)) {
         const py = process.env.SCMCU_BUILD_PY || 'python';
         const script = path.join(flashDir, 'build_helper.py');
@@ -99,7 +102,7 @@ function startScmcu(context: vscode.ExtensionContext): void {
         await buildProject(root, channel);
     }));
 
-    // ---- 一键编译下载：编译成功后调用 SCMCU Writer 烧录 ----
+    // ---- 一键编译下载：编译成功后调用烧录通道（Writer 烧录器 或 CMS-ICE6 仿真器）----
     context.subscriptions.push(vscode.commands.registerCommand('scmcu.buildAndFlash', async () => {
         const root = workspaceRoot();
         if (!root) return;
@@ -107,23 +110,16 @@ function startScmcu(context: vscode.ExtensionContext): void {
         channel.show(true);
         const built = await buildProject(root, channel);
         if (!built) return;
-        const cfg = vscode.workspace.getConfiguration('scmcu');
-        const buildDir = cfg.get<string>('buildDir', 'build');
-        const outName = cfg.get<string>('outputName', 'SCMCU_Project');
-        const scxPath = path.join(root, buildDir, outName + '.scx');
-        if (!fs.existsSync(scxPath)) {
-            vscode.window.showErrorMessage('未找到烧录文件（编译应已生成 .scx）: ' + scxPath);
-            return;
-        }
-        // 脱机烧写次数上限：0=无限（默认），>0=限次。不可强制最小 1，否则会锁成“烧一次即耗尽”。
-        const count = cfg.get<number>('flashCount', 0) || 0;
-        const helper = context.asAbsolutePath(path.join('flash', 'ScmcuFlashHelper.exe'));
-        const r = await flashScx(scxPath, helper, channel, count, false);
-        if (r.ok) {
-            vscode.window.showInformationMessage('一键下载完成: ' + path.basename(scxPath));
-        } else {
-            vscode.window.showErrorMessage('下载失败: ' + r.message);
-        }
+        await flashBuildArtifacts(context, root);
+    }));
+
+    // ---- 只下载：跳过编译，直接烧写 build 目录中上一次的固件 ----
+    context.subscriptions.push(vscode.commands.registerCommand('scmcu.flash', async () => {
+        const root = workspaceRoot();
+        if (!root) return;
+        channel.clear();
+        channel.show(true);
+        await flashBuildArtifacts(context, root);
     }));
 
     // ---- 硬件选项 ----
@@ -244,7 +240,14 @@ function startScmcu(context: vscode.ExtensionContext): void {
     const buildStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
     buildStatus.command = 'scmcu.build';
     context.subscriptions.push(buildStatus);
-    const flashStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
+    // 只下载：跳过编译，直接烧写 build 目录里上一次的固件（位于「编译」与「一键编译下载」之间）
+    const downloadStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
+    downloadStatus.command = 'scmcu.flash';
+    downloadStatus.text = '$(cloud-download)';
+    downloadStatus.tooltip = '只下载（不编译）：烧写 build 目录中已有固件';
+    context.subscriptions.push(downloadStatus);
+    downloadStatusItem = downloadStatus;
+    const flashStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95);
     flashStatus.command = 'scmcu.buildAndFlash';
     flashStatus.text = '$(zap)';
     flashStatus.tooltip = '编译并下载到编程器';
@@ -311,6 +314,7 @@ function updateStatusBar(chipStatus: vscode.StatusBarItem, cfgStatus: vscode.Sta
         buildStatus.text = '$(debug-start)';
         buildStatus.tooltip = '编译';
         buildStatus.show();
+        if (downloadStatusItem) downloadStatusItem.show();
         if (flashStatusItem) flashStatusItem.show();
         // 芯片设置 + 源文件按钮在两种模式下都可用：
         //   scw 模式 → 读写 .scw 文件
@@ -327,6 +331,7 @@ function updateStatusBar(chipStatus: vscode.StatusBarItem, cfgStatus: vscode.Sta
         chipStatus.show();
         cfgStatus.hide();
         buildStatus.hide();
+        if (downloadStatusItem) downloadStatusItem.hide();
         if (flashStatusItem) flashStatusItem.hide();
         srcStatus.hide();
     }
@@ -442,6 +447,7 @@ export async function autoNormalizeConfigWords(context: vscode.ExtensionContext)
 // 每次枚举 USB 设备约 1s，故仅在窗口聚焦时轮询、失焦停表，避免后台窗口持续空耗 CPU。
 const PROGRAMMER_POLL_MS = 5000;
 let flashStatusItem: vscode.StatusBarItem | undefined; // 一键编译下载按钮（updateStatusBar 内同步显隐）
+let downloadStatusItem: vscode.StatusBarItem | undefined; // 只下载按钮（updateStatusBar 内同步显隐）
 let progTimer: NodeJS.Timeout | undefined;
 let progPollOn = false;
 let progBusy = false;
@@ -478,15 +484,18 @@ async function refreshProgrammerStatus(item: vscode.StatusBarItem, verbose: bool
     progBusy = true;
     try {
         const devs = await detectProgrammers();
-        const one = devs.map(d => `${d.name} (PID 0x${d.pidHex}${d.mode === 'bootloader' ? '，升级模式' : ''})`).join('、');
+        const one = devs.map(d => `${d.name} (VID 0x${d.vidHex} / PID 0x${d.pidHex}${d.mode === 'bootloader' ? '，升级模式' : ''})`).join('、');
         let text: string;
         let tip: string;
         if (devs.length === 0) {
             text = '$(circuit-board) 编程器: 未连接';
-            tip = '未检测到 SCMCU 编程器（USB VID 0x1209）。\n支持的型号：WRITER8 LITE / WRITER V8 / WRITER V8 PRO / ICE8 PRO\n点击立即刷新';
+            tip = '未检测到 SCMCU 设备。\nWriter 烧录器（VID 0x1209）：WRITER8 LITE / WRITER V8 / WRITER V8 PRO / ICE8 PRO\nICE 仿真器（VID 0x0925）：CMS-ICE6\n\n两种设备都支持「一键编译下载」与「只下载」：\n· Writer 烧录器 → 走 Writer.Core.dll 烧录流程\n· CMS-ICE6 仿真器 → 走 IDE 私有 HID 帧序列（内置 ice6_flash.py）\n点击立即刷新';
         } else {
-            text = '$(circuit-board) ' + devs.map(d => d.mode === 'bootloader' ? `${d.name} (Boot)` : d.name).join('、');
-            tip = devs.map(d => `已检测到 SCMCU 编程器：${d.name}\nUSB VID 0x1209 / PID 0x${d.pidHex}${d.mode === 'bootloader' ? '\n注意：编程器处于升级(bootloader)模式，请用 Writer 的升级功能刷写固件' : ''}`).join('\n\n') + '\n点击立即刷新';
+            text = '$(circuit-board) ' + devs.map(d => d.kind === 'ice' ? `${d.name} (仿真器)` : (d.mode === 'bootloader' ? `${d.name} (Boot)` : d.name)).join('、');
+            tip = devs.map(d => d.kind === 'ice'
+                ? `已检测到 ICE 仿真器：${d.name}\nUSB VID 0x${d.vidHex} / PID 0x${d.pidHex}\n本插件已支持用它下载：「一键编译下载」与「只下载」均可直接用。\n⚠ 下载时请先关闭 SCMCU IDE —— 它会抢占设备并切断目标板供电。`
+                : `已检测到 SCMCU 编程器：${d.name}\nUSB VID 0x${d.vidHex} / PID 0x${d.pidHex}${d.mode === 'bootloader' ? '\n注意：编程器处于升级(bootloader)模式，请用 Writer 的升级功能刷写固件' : ''}`
+            ).join('\n\n') + '\n点击立即刷新';
         }
         if (progLastText !== text) { // 内容变化才刷新状态栏，避免闪烁
             progLastText = text;
@@ -510,6 +519,33 @@ async function refreshProgrammerStatus(item: vscode.StatusBarItem, verbose: bool
 
 function getWorkspaceRoot(): string | undefined {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+// ---- 烧写 build 目录中已有的固件 ----
+// 「一键编译下载」编译成功后调用；「只下载」跳过编译直接调用。
+// 具体走哪条通道由 flashScx 按当前连接的设备决定：
+//   Writer 烧录器（VID 0x1209）→ Writer.Core.dll 烧录 .scx
+//   CMS-ICE6 仿真器（VID 0x0925）→ 内置 ice6_flash.py 复刻 IDE HID 会话烧 .hex
+async function flashBuildArtifacts(context: vscode.ExtensionContext, root: string): Promise<void> {
+    const cfg = vscode.workspace.getConfiguration('scmcu');
+    const buildDir = cfg.get<string>('buildDir', 'build');
+    const outName = cfg.get<string>('outputName', 'SCMCU_Project');
+    const scxPath = path.join(root, buildDir, outName + '.scx');
+    const hexPath = path.join(root, buildDir, outName + '.hex');
+    if (!fs.existsSync(scxPath) && !fs.existsSync(hexPath)) {
+        vscode.window.showErrorMessage('未找到烧录文件，请先编译: ' + scxPath);
+        return;
+    }
+    // 脱机烧写次数上限：0=无限（默认），>0=限次。不可强制最小 1，否则会锁成“烧一次即耗尽”。
+    const count = cfg.get<number>('flashCount', 0) || 0;
+    const helper = context.asAbsolutePath(path.join('flash', 'ScmcuFlashHelper.exe'));
+    const iceScript = context.asAbsolutePath(path.join('flash', 'ice6_flash.py'));
+    const r = await flashScx(scxPath, helper, channel, count, false, hexPath, iceScript);
+    if (r.ok) {
+        vscode.window.showInformationMessage('下载完成: ' + path.basename(scxPath));
+    } else {
+        vscode.window.showErrorMessage('下载失败: ' + r.message);
+    }
 }
 
 function workspaceRoot(): string | undefined {

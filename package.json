@@ -2,7 +2,7 @@
   "name": "scmcu-vscode",
   "displayName": "SCMCU IDE (SC8 系列)",
   "description": "在 VS Code 中编译 SC8F/SC8P 系列单片机工程、配置硬件选项、生成 .scx 烧录文件（基于 SCMCU_IDE 工具链）",
-  "version": "0.9.5",
+  "version": "0.9.10",
   "publisher": "local",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -28,6 +28,8 @@
     "workspaceContains:**/*.scw",
     "workspaceContains:**/*.{c,asm,s}",
     "onCommand:scmcu.build",
+    "onCommand:scmcu.buildAndFlash",
+    "onCommand:scmcu.flash",
     "onCommand:scmcu.selectChip",
     "onCommand:scmcu.hardwareOptions",
     "onCommand:scmcu.configureCompiler",
@@ -46,7 +48,13 @@
       },
       {
         "command": "scmcu.buildAndFlash",
-        "title": "SCMCU: 一键编译下载"
+        "title": "SCMCU: 一键编译下载",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "scmcu.flash",
+        "title": "SCMCU: 只下载（不编译）",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "scmcu.hardwareOptions",
@@ -130,6 +138,9 @@
         },
         {
           "command": "scmcu.buildAndFlash"
+        },
+        {
+          "command": "scmcu.flash"
         }
       ]
     },
@@ -230,7 +241,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "node test/configWords.regression.js && node test/programmer.regression.js",
-    "package": "python flash/build_helper.py && vsce package --allow-missing-repository"
+    "package": "vsce package --allow-missing-repository",
+    "build:helper": "python flash/build_helper.py"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

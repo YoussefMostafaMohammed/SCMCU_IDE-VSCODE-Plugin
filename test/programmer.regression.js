@@ -20,10 +20,21 @@ console.log('== classifyPid：已知型号 正常/升级模式 ==');
     ['0021', 'WRITER V8 PRO', 'bootloader'],
     ['1502', 'ICE8 PRO', 'normal'],
     ['1102', 'ICE8 PRO', 'bootloader'],
+    ['0283', 'CMS-ICE6', 'normal'],
 ].forEach(([pid, name, mode]) => {
     const d = pm.classifyPid(pid);
     check(`PID ${pid} -> ${name} (${mode})`, d.name === name && d.mode === mode && d.pidHex === pid, d);
 });
+
+console.log('== classifyDevice：VID+PID 精确归类（CMS-ICE6） ==');
+{
+    const ice = pm.classifyDevice('0925', '0283');
+    check('VID_0925 PID_0283 -> CMS-ICE6 / ice', ice.name === 'CMS-ICE6' && ice.kind === 'ice' && ice.vidHex === '0925' && ice.mode === 'normal', ice);
+    const w = pm.classifyDevice('1209', '0201');
+    check('VID_1209 PID_0201 -> WRITER8 LITE / writer', w.name === 'WRITER8 LITE' && w.kind === 'writer' && w.vidHex === '1209', w);
+    const u = pm.classifyDevice('0925', '9999');
+    check('VID_0925 未知 PID 不误认', u.name === '未知编程器' && u.vidHex === '0925', u);
+}
 
 console.log('== classifyPid：边界 ==');
 {
@@ -51,10 +62,15 @@ console.log('== parseDeviceIds：pnputil 混合输出 ==');
         '    设备 ID:                USB\\VID_046D&PID_C52B\\8&abc&0&1',
         '',
         '    设备实例 ID:            USB\\VID_1209&PID_0032\\1&0&0&0',
+        // CMS-ICE6：在 HID 子接口里出现，厂商串 CMS ICE，伪装成 USB 输入设备
+        '    设备实例 ID:            USB\\VID_0925&PID_0283\\6&300e2e9c&0&2',
+        '    硬件 ID:                HID\\VID_0925&PID_0283&REV_0000',
         '',
     ].join('\n');
     const pids = pm.parseDeviceIds(sample);
-    check('解析去重 [0201, 0032]，忽略其它 VID', eq(pids, ['0201', '0032']), pids);
+    check('解析去重 [0201, 0032, 0283]，忽略其它 VID', eq(pids, ['0201', '0032', '0283']), pids);
+    const pairs = pm.parseDevicePairs(sample);
+    check('parseDevicePairs 保留 VID：ICE6 = 0925:0283', pairs.some((d) => d.vidHex === '0925' && d.pidHex === '0283'), pairs);
 }
 {
     const pids = pm.parseDeviceIds('0201');
