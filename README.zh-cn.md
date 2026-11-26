@@ -1,13 +1,13 @@
 # SCMCU IDE for VS Code（SC8 系列单片机）
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.10-orange.svg)](https://github.com/wanguyouy/SCMCU_IDE-VSCODE-Plugin/releases)
+[![Version](https://img.shields.io/badge/version-0.9.10-orange.svg)](https://github.com/YoussefMostafaMohammed/SCMCU_IDE-VSCODE-Plugin/releases)
 
 **仓库地址（国内建议走 Gitee）：**
 
 | 平台 | 地址 |
 |---|---|
-| GitHub | https://github.com/wanguyouy/SCMCU_IDE-VSCODE-Plugin |
+| GitHub | https://github.com/YoussefMostafaMohammed/SCMCU_IDE-VSCODE-Plugin |
 | Gitee（国内镜像） | https://gitee.com/wangzhengyangsb/zhongweiscmcuidevscodecha |
 
 在 VS Code 中编译 SC8F/SC8P 系列单片机工程（基于 SCMCU_IDE 的 MPLAB XC8/PICC 工具链），
@@ -218,7 +218,7 @@ N      = 该芯片的配置字数量（参与校验和的槽数）
 |---|---|
 | 入口 | `SCMCU: 一键编译下载` / `SCMCU: 只下载（不编译）`；底栏 `$(cloud-download)` / `$(zap)` |
 | `scmcu.writerPath` | Writer 安装目录；**留空自动扫描**（盘符根 / `Work` / `Program Files` / `gat/sheet/中微` 下含 `library`+`data` 的 `SCMCU_Writer*`） |
-| `scmcu.flashCount` | 烧录片数（WriterCount），默认 1 |
+| `scmcu.flashCount` | 固件允许的脱机烧录次数上限（WriterCount）；默认 `0` 表示不限次数，正整数表示上限 |
 | 报错 | 编程器未连接 / 型号不支持 / 芯片库无此型号 / 文件解析失败，均有中文说明 |
 | 排障 | 助手 `--probe` 只验证链路（连接 → 芯片库 → `.scx` 解析），不烧录 |
 | 依赖 | x86 / .NET Framework 4.x（Win7+ 自带）；无 .NET SDK 时用 `npm run build:helper` 重编 |
@@ -303,7 +303,7 @@ V2.00.17 的完整下载会话逐段实现（Frida hook `WriteFile` 抓包 + 真
 | `scmcu.sourceFiles` | **脱离 .scw 模式可选**：源文件清单（相对工程根，顺序即编译顺序）；`[]` = 自动扫描（用「源文件管理」面板维护） |
 | `scmcu.noScwBehavior` | 找不到 `.scw` 时的行为：`prompt`（默认，右下角询问）/ `load`（直接加载）/ `skip`（不加载，可手动 `SCMCU: 启动`） |
 | `scmcu.writerPath` | SCMCU_Writer 安装目录（一键编译下载用）；留空自动扫描，见「一键编译下载」 |
-| `scmcu.flashCount` | 一键下载烧录片数（WriterCount），默认 `1` |
+| `scmcu.flashCount` | 固件允许的脱机烧录次数上限（WriterCount）；默认 `0` 表示不限次数，正整数表示上限 |
 
 ## 错误跳转（Problem 面板）
 
@@ -372,8 +372,8 @@ npm run build:helper           # 或 python flash/build_helper.py
 # 产物 flash/ScmcuFlashHelper.exe（x86 / .NET Framework 4.x）
 ```
 
-> 打包脚本 `npm run package` 不再自动重编助手（原来会因为联网拉 Roslyn 失败而中断），
-> 助手源码改动后单独跑一次 `npm run build:helper` 即可。
+> `npm run package` 会先运行 `npm run build:helper`，因此需要 Python、dotnet、.NET Framework 参考程序集及 Writer DLL。
+> 如果只修改了助手源码，也可以单独运行 `npm run build:helper`。
 
 > 测试夹具 `test/fixtures` 从官方 SCMCU_IDE 的 `mcu/{config,ini}` 拷入（SC8F052 / SC8F072 模板），
 > 来源与更新方式见 `test/fixtures/README.md`。

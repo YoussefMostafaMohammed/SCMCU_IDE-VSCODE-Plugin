@@ -199,16 +199,8 @@ export async function buildProject(workspaceRoot: string, channel: vscode.Output
         const scx = hexToScx(hexText, info.device, words, params.romWords, params.hexmcu);
         fs.writeFileSync(scxPath, scx);
         channel.appendLine('');
-        channel.appendLine(vscode.l10n.t(
-            '[SCMCU] Configuration words: {0}',
-            words.map(w => w.toString(16).toUpperCase().padStart(4, '0')).join(',')
-        ));
+        // 配置字没人读得懂，紧跟一行 IDE 硬件选项面板的同款文案（WDT=DISABLE / LVR_SEL=1.8V …）
 
-        channel.appendLine(vscode.l10n.t(
-            '[SCMCU] Programming file: {0} ({1} bytes)',
-            scxPath,
-            scx.length
-        ));
         // 配置槽数 = 该芯片的配置字数：权威来源 mcu/ini/<chip>.ini 的 CONFIGLENTH+1
         // （.scw 的 config 会用 FFFF 补齐到 4 个，不能作为槽数依据，如 SC8F052=2 槽、SC8P052B=3 槽）
         // Number of configuration slots = number of configuration words for the given chip: defined as CONFIGLENTH + 1 in the authoritative source file (mcu/ini/<chip>.ini).

@@ -7,7 +7,6 @@ media/**
 test-logic.js
 **.md
 !README.md
-!README.en.md
 test/**
 # python 编译缓存（不打包）
 flash/__pycache__/**

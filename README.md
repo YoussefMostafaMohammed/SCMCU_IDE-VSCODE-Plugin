@@ -1,9 +1,9 @@
 # SCMCU IDE for VS Code (SC8 Series MCUs)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.10-orange.svg)](https://github.com/wanguyouy/SCMCU_IDE-VSCODE-Plugin/releases)
+[![Version](https://img.shields.io/badge/version-0.9.10-orange.svg)](https://github.com/YoussefMostafaMohammed/SCMCU_IDE-VSCODE-Plugin/releases)
 
-**中文文档：[README.md](README.md)**
+**Chinese documentation: [README.zh-cn.md](README.zh-cn.md)**
 
 Compile SC8F/SC8P series MCU projects in VS Code using the SCMCU_IDE MPLAB XC8/PICC toolchain. Configure chip hardware options, select chips, detect the compiler, navigate to build errors, and generate `.hex` and `.scx` files. The extension also detects SCMCU programmers and supports one-click build-and-program and programming an existing build.
 
@@ -197,6 +197,22 @@ Chip width is read from `HEXMCU` in the IDE `.ini` file when available. Otherwis
 
 The output channel reports the project, chip, compiler, sources, include directories, configuration words, and generated programming file. Build errors and warnings are also shown in VS Code's Problems panel and can be clicked to navigate to their source locations.
 
+The output also decodes configuration words into readable hardware options using the chip's `mcu/config/<chip>.cfg` template, in the same order as the SCMCU IDE hardware-options panel (for example, `WDT`, `PROTECT`, `LVR_SEL`, `FCPU_DIV`, `ICSPPORT_SEL`, and `EXT_RESET`). A field that cannot be matched is shown as `?`. This line is omitted when the template or chip data is unavailable.
+
+Example:
+
+```text
+[SCMCU] Chip: SC8P052B  ROM: 1024 word
+[SCMCU] Sources (8): main.c interrupt.c motor.c key.c LED.c battery.c CMP.c sleep.c
+[SCMCU] Include: src | inc | data/include
+[SCMCU] Config words: 3FF3,3FAB,3FFF,FFFF
+[SCMCU] Hardware options: WDT=DISABLE  PROTECT=ENABLE  LVR_SEL=2.0V  FCPU_DIV=4T
+        ICSPPORT_SEL=NORMAL  EXT_RESET=DISABLE
+[SCMCU] Programming file: ...\build\SCMCU_Project.scx (2304 bytes)
+[SCMCU] CfgCRC(Hex) -- 0x9202  CfgSum(Hex) -- 0x156D
+[SCMCU] Build succeeded
+```
+
 The generated `.scx` file's CfgSum and CfgCRC are calculated to match SCMCU Writer:
 
 ```text
@@ -204,7 +220,9 @@ CfgSum = (sum of program bytes from 0x100 + checksum configuration bytes) & 0xFF
 CfgCRC = CRC-16/CCITT-FALSE (poly=0x1021, init=0xFFFF, xorout=0)
 ```
 
-The number of configuration-word slots included in the checksum is chip-specific. It is derived from the chip database or configuration template; it is not necessarily four just because `.scx` reserves four slots.
+The calculation matches `GetCheckSum` and `GetDataCRC16` in the Writer library. CfgSum adds program bytes starting at address `0x100` and the low byte of each configuration word; CMSCore chips also include each word's high byte. CfgCRC covers the program bytes and the low and high bytes of the applicable configuration words.
+
+Although `.scx` reserves four configuration-word slots, the number included in the checksum is chip-specific. It is taken from the chip database when available, otherwise inferred from the configuration template (maximum word index plus one); the final fallback is four slots. For example, SC8F052 uses two slots and SC8F072 uses four. The `.scw` file may show four values because missing slots are padded with `FFFF`; that does not mean all four are part of the checksum.
 
 | Project | Chip | Configuration words | Slots | CfgSum | CfgCRC |
 |---|---|---|---:|---|---|
@@ -233,7 +251,9 @@ The status bar detects supported USB devices on Windows.
 |---|---:|---:|
 | CMS-ICE6 | `0x0925` | `0x0283` |
 
-The extension checks once after activation and polls every five seconds while the window is focused. Clicking the status item refreshes detection immediately. Bootloader-mode Writer devices are reported with a reminder to restore normal firmware using SCMCU Writer.
+The extension checks once after activation and polls every five seconds while the window is focused. Clicking the status item refreshes detection immediately. Bootloader-mode Writer devices are reported with a reminder to restore normal firmware using SCMCU Writer. An unrecognized PID is reported as an unknown programmer; no connected device and detection errors are reported separately. Detection runs on Windows and uses `pnputil`, with a `Get-PnpDevice` fallback.
+
+For CMS-ICE6, the device must be powered and connected. The target board should have a stable supply (approximately 4.5 V VDD). Close SCMCU IDE before programming: it can retain exclusive access to the ICE6. If a previous IDE session left the device unable to write, disconnect and reconnect the ICE6 USB cable.
 
 ## Build and Program
 
@@ -244,6 +264,8 @@ The extension checks once after activation and polls every five seconds while th
 | Writer programmer (`0x1209`) | `.scx` | SCMCU_Writer must be installed so the extension can use its chip database and libraries. |
 | CMS-ICE6 (`0x0925`) | `.hex` | No Writer installation required. The extension includes the programming script and Python runtime. |
 
+`Build and Flash` builds before programming; `Flash (Without Building)` programs the most recent build without recompiling. Both commands require a connected supported programmer and a powered target.
+
 ### Writer channel
 
 The extension runs `flash/ScmcuFlashHelper.exe` and loads the Writer libraries from the configured or detected SCMCU_Writer installation. The GUI does not need to be open.
@@ -252,11 +274,39 @@ The extension runs `flash/ScmcuFlashHelper.exe` and loads the Writer libraries f
 - `scmcu.flashCount`: maximum allowed programming operations for the firmware. `0` (the default) means unlimited; a positive integer sets a limit.
 - The helper can be rebuilt with `npm run build:helper` or `python flash/build_helper.py`.
 
+The Writer helper checks the programmer connection and Writer ID, sends firmware and configuration data in blocks, waits for acknowledgements, verifies the transfer, and finishes the programming session. It loads the Writer libraries at runtime from the installation directory rather than copying them into that installation.
+
 ### CMS-ICE6 channel
 
 The extension uses `flash/ice6_flash.py` and the bundled embeddable Python runtime in `flash/py/`; a system Python installation is not required. Set `SCMCU_BUILD_PY` to use a different Python executable.
 
 The script performs the device handshake, erase, programming, read-back verification, configuration-word update, and cleanup. Progress is displayed in the VS Code status bar.
+
+The high-level device sequence is:
+
+| Step | Operation |
+|---|---|
+| 1 | Check the programmer and target connection; reconnect to the target if needed. |
+| 2 | Perform the session handshake and query chip ID, ROM size, and programming parameters. |
+| 3 | Enter programming mode, erase, and program non-blank firmware blocks, waiting for an acknowledgement for each block. |
+| 4 | Read back the device and verify the programmed contents. |
+| 5 | Write the configuration words from the matching `.scx` file and send the device cleanup sequence. |
+
+The script uses the bundled embeddable Python 3.11.9 runtime and Python's standard library; a system Python installation and pip packages are not required. Set `SCMCU_BUILD_PY` to use a different interpreter.
+
+The protocol workflow is:
+
+| Step | Command or frame | Purpose |
+|---|---|---|
+| 1 | `0x50 0x53`, `0x1A` | Check the programmer and target connection; reconnect with `0xA6 0x78` and `0x52` if needed. |
+| 2 | `0xFC`, `0x18`, `0x1B` | Establish the programming session. |
+| 3 | `0x17` | Read chip ID, ROM size, and programming parameters, including erase/program timing and `VPPMODE=0x89`; the programmer generates VPP. The command must be acknowledged with `0x03`. |
+| 4 | `0x0C 0x02 0x10` | Enter programming mode. |
+| 5 | `0x01` per block | Program non-blank firmware blocks. Addresses advance by `0x18` words; each frame carries 48 bytes (24 words) and waits for its own acknowledgement. |
+| 6 | `0x03` with erased configuration, then `0x0C 0x01 0x04` | Clear the configuration area and leave programming mode. |
+| 7 | `0x06` x 64 | Read back the device for verification. The device returns the low byte for each word. |
+| 8 | `0x03` with actual configuration, then `0x0C 0x01 0x04` | Write configuration words read from offset `0xA0` in the matching `.scx` file. |
+| 9 | `0x0D`, `0x0B`, `0x04`, `0x0F`, `0x13`, `0x11` x 8, `0x09` x 4 | Finish and release the programming session, including after a verification failure. |
 
 **Before programming**
 
@@ -264,6 +314,48 @@ The script performs the device handshake, erase, programming, read-back verifica
 - Close SCMCU IDE before programming. It can take exclusive control of the ICE6 and leave it unable to write until the USB device is disconnected and reconnected.
 
 If verification reports that the chip was erased but no data was written, disconnect and reconnect the ICE6, then retry.
+
+Progress is summarized in the output channel, while the active percentage is shown in the VS Code status bar. Raw protocol frames are suppressed by default; use `--debug` when troubleshooting.
+
+#### CMS-ICE6 troubleshooting
+
+| Symptom | Likely cause and action |
+|---|---|
+| Commands respond, but nothing is written | Disconnect and reconnect the programmer. Verify that the IDE is closed and the target is powered. |
+| Only the initial device query responds | The target connection may have dropped. Reconnect the programmer and retry. |
+| Verification reports many mismatches | Allow the programmer to settle after writing, then retry verification. |
+| Later write blocks are missed | Check USB stability and retry; the extension waits for each block acknowledgement. |
+| Read-back data looks invalid | Reconnect the device and retry the programming session. |
+| Writing works only after power cycling | Close SCMCU IDE, then disconnect and reconnect the ICE6 USB cable before retrying. |
+
+The extension stops and reports communication or verification failures rather than treating an incomplete write as a successful download.
+
+The following troubleshooting notes summarize known ICE6 issues:
+
+| Symptom | Cause and handling |
+|---|---|
+| Responses arrive but programming does not take effect | A report-ID byte can shift the frame. The script handles the report ID when preparing writes. |
+| Only the initial query responds | The target link may have dropped. The script reconnects and checks the target before writing. |
+| Many read-back mismatches appear immediately after writing | The device may need time to settle. Verification uses longer timeouts and retries unreadable blocks. |
+| Later blocks read as `FF`, or a write hangs | Reads during programming can interrupt the device state machine. The script avoids interleaving reads and bounds asynchronous waits. |
+| Some blocks are missed | Each write acknowledgement is consumed before sending the next block to avoid filling the HID input queue. |
+| Read-back data looks like repeated `11 1B` bytes | The read path needs a valid session handshake; the script establishes one before reading. |
+| Old data appears to remain after erase | The erase operation is part of the programming setup; blank blocks are skipped and verified by read-back. |
+| High instruction bits do not match in verification | The device returns only the low byte for the relevant read command; verification uses the supported byte granularity. |
+| The programmer erases but cannot write again | The cleanup sequence must run even after a failed verification. The script sends it during cleanup. |
+| After using SCMCU IDE, writes are acknowledged but the chip remains erased | Close the IDE, disconnect and reconnect the ICE6 USB cable, then retry. |
+
+## Error Navigation
+
+Compiler errors and warnings are parsed into VS Code's **Problems** panel. Select an entry to jump to the corresponding source location; the full compiler output remains available in the **SCMCU** output channel.
+
+## Build Behavior and IDE Compatibility
+
+- **Source order:** In `.scw` mode, files are compiled in the order of the `SourceFile=` entries. XC8 psect allocation can depend on source order, so changing the order can change the output. In standalone mode, configure `scmcu.sourceFiles` when alphabetical scanning produces link errors.
+- **Compiler options:** Build options are derived from the SCMCU IDE project configuration and its generated startup assembly.
+- **Configuration words:** `.scw` mode reads the `config=` values from the project. The four words are written to the `.scx` header starting at offset `0xA0`.
+- **Chip metadata:** ROM size and word width are read from the IDE's chip `.ini` files when available. If `HEXMCU` is absent, a model-based fallback is used: supported 14-bit families use `0x3FFF`; 16-bit families use `0xFFFF`.
+- **`.scx` header:** The chip name and required marker are written so the SCMCU Writer can identify the firmware, including chip names that use all eight available characters.
 
 ## Settings
 
@@ -317,6 +409,10 @@ flash/
 ├── ice6_flash.py            # CMS-ICE6 download orchestration
 ├── ice6_flash_core.py       # CMS-ICE6 protocol primitives
 └── py/                      # Bundled Python runtime
+test/
+├── configWords.regression.js  # Configuration-word regression tests
+├── programmer.regression.js   # Programmer-detection regression tests
+└── fixtures/ide/mcu/          # IDE chip configuration fixtures
 l10n/
 ├── bundle.l10n.json         # Default runtime localization catalog
 └── bundle.l10n.zh-cn.json   # Simplified Chinese runtime translations
@@ -332,8 +428,24 @@ l10n/
 | **v0.9.7** | Added readable hardware-option information and programming progress. |
 | **v0.9.6** | CMS-ICE6 programming and flash-without-building command. |
 | **v0.9.5** | Chip-specific configuration-word slot counts and Writer-matching checksums. |
+| **v0.9.4** | UTF-8 decoding for Writer helper output. |
+| **v0.9.3** | Improved compiler output decoding and warning navigation. |
+| **v0.9.2** | Status-bar controls changed to icon buttons. |
+| **v0.9.1** | Fixes for offline programming options and source-file management. |
 | **v0.9.0** | Configuration-word normalization, programmer detection, and Writer programming channel. |
 | **v0.8.x** | Source-file manager and standalone mode support. |
 | **v0.6.x** | Configurable source/include directories, error navigation, and checksum alignment. |
 | **v0.3.x** | Hardware-options panel and status-bar chip selection/build actions. |
 | **v0.1.x** | Initial build, hardware-options, and compiler auto-detection features. |
+
+### v0.9.10 details
+
+- The VSIX bundles the Windows x64 embeddable Python 3.11.9 runtime under `flash/py/`; system Python is not required for CMS-ICE6 programming.
+- The runtime resolver checks `SCMCU_BUILD_PY`, then the bundled interpreter, then `python` on `PATH`.
+- The bundled runtime contains only the components needed by the programming script.
+
+### v0.9.6 details
+
+- CMS-ICE6 programming is selected before checking for a Writer installation, so CMS-ICE6 can be used without SCMCU Writer.
+- Configuration words are read from the matching `.scx` file at offset `0xA0` to avoid programming words from a different project or hardware configuration.
+- The extension added the **Flash (Without Building)** command and its status-bar button.
